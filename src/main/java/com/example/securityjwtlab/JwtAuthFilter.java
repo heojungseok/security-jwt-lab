@@ -1,5 +1,7 @@
 package com.example.securityjwtlab;
 
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -7,72 +9,65 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
-import org.springframework.security.authentication.AnonymousAuthenticationToken;
-
 
 import java.io.IOException;
 import java.util.List;
 
-@Component
 @Slf4j
+@Component
 public class JwtAuthFilter extends OncePerRequestFilter {
+
+    private final JwtProvider jwtProvider;
+
+    public JwtAuthFilter(JwtProvider jwtProvider) {
+        this.jwtProvider = jwtProvider;
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
 
-        log.debug("[JwtAuthFilter] hit. uri=" + request.getRequestURI()
-                + ", authHeader=" + request.getHeader("Authorization"));
+        // 실습 단계에서는 "기존 인증 스킵" 로직은 빼는 게 디버깅이 쉬움
+        // (나중에 운영 수준에서 최적화로 넣자)
 
-        // 1) 이미 인증이 있으면 스킵, 익명 인증이 있으면 덮어씀
-        Authentication existing = SecurityContextHolder.getContext().getAuthentication();
-        if (existing != null && existing.isAuthenticated()) {
-            filterChain.doFilter(request, response);
-            return;
-        }
-
-
-        // 2) Authorization: Bearer <token>
         String authHeader = request.getHeader("Authorization");
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            // 토큰이 없으면 anonymous로 두고 계속 진행
             filterChain.doFilter(request, response);
             return;
         }
 
         String token = authHeader.substring(7);
-        log.debug("[JwtAuthFilter] token='" + token + "'");
-        // 3) (학습용) 토큰 검증/파싱 흉내
-        // valid-user  -> userId=100, ROLE_USER
-        // valid-admin -> userId=200, ROLE_ADMIN
-        String userId;
-        List<GrantedAuthority> authorities;
 
-        if ("valid-user".equals(token)) {
-            userId = "100";
-            authorities = List.of(new SimpleGrantedAuthority("ROLE_USER"));
-        } else if ("valid-admin".equals(token)) {
-            userId = "200";
-            authorities = List.of(new SimpleGrantedAuthority("ROLE_ADMIN"));
-        } else {
-            // 정책 Y: 유효하지 않으면 그냥 anonymous로 둠
-            filterChain.doFilter(request, response);
-            return;
+        try {
+            Claims claims = jwtProvider.parseAndValidate(token);
+
+            String userId = claims.getSubject();
+
+            @SuppressWarnings("unchecked")
+            List<String> roles = (List<String>) claims.get("roles", List.class);
+
+            var authorities = roles.stream()
+                    .map(r -> r.startsWith("ROLE_") ? r : "ROLE_" + r)
+                    .map(SimpleGrantedAuthority::new)
+                    .toList();
+
+            Authentication authentication =
+                    new UsernamePasswordAuthenticationToken(userId, null, authorities);
+
+            SecurityContextHolder.getContext().setAuthentication(authentication);
+
+        } catch (JwtException | IllegalArgumentException e) {
+            // 정책 Y: 유효하지 않으면 그냥 anonymous로 둠(체인 진행)
+            // (원하면 여기서 로그만 남겨도 됨)
+            log.warn("[JwtAuthFilter] token invalid: " + e.getClass().getSimpleName()
+                    + " - " + e.getMessage());
         }
 
-        // 4) Authentication 생성 + SecurityContext에 저장
-        Authentication authentication =
-                new UsernamePasswordAuthenticationToken(userId, null, authorities);
-
-        SecurityContextHolder.getContext().setAuthentication(authentication);
-        log.debug("[JwtAuthFilter] set auth=" + SecurityContextHolder.getContext().getAuthentication());
-        // 5) 다음 필터로 진행
         filterChain.doFilter(request, response);
     }
 }
