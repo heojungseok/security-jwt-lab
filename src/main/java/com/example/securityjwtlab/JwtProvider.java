@@ -1,8 +1,6 @@
 package com.example.securityjwtlab;
 
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.Jws;
-import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -12,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import java.util.UUID;
 
 @Component
 public class JwtProvider {
@@ -42,13 +41,18 @@ public class JwtProvider {
         Instant now = Instant.now();
         Instant exp = now.plusSeconds(expMinutes * 60);
 
-        return Jwts.builder()
+        JwtBuilder builder = Jwts.builder()
                 .subject(userId)           // sub=userId
                 .claim("roles", roles)     // roles=[...]
                 .claim("typ", type)        // typ=access|refresh
                 .issuedAt(Date.from(now))
-                .expiration(Date.from(exp))
+                .expiration(Date.from(exp));
+
+        if ("refresh".equals(type)) {
+            builder.id(UUID.randomUUID().toString());
+        }
                 // 알고리즘 명시(원하면 HS512로 바꿔도 됨)
+        return builder
                 .signWith(key, Jwts.SIG.HS256)
                 .compact();
     }

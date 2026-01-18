@@ -3,28 +3,50 @@ package com.example.securityjwtlab;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class RefreshTokenStore {
-    //실무에선 여기 대신 DB/Redis + 해시 저장 + 만료/회전/기기별 관리 등
 
-    // refreshToken -> userId (실습용 최소)
-    private final Map<String, String> store = new ConcurrentHashMap<>();
+    // refreshToken -> userId
+    private final Map<String, String> tokenToUser = new ConcurrentHashMap<>();
+
+    // userId -> refreshTokens (선택: 사용자 단위 revoke 용)
+    private final Map<String, Set<String>> userToTokens = new ConcurrentHashMap<>();
 
     public void save(String refreshToken, String userId) {
-        store.put(refreshToken, userId);
+        tokenToUser.put(refreshToken, userId);
+        userToTokens.computeIfAbsent(userId, k -> ConcurrentHashMap.newKeySet()).add(refreshToken);
     }
 
     public boolean exists(String refreshToken) {
-        return store.containsKey(refreshToken);
+        return tokenToUser.containsKey(refreshToken);
     }
 
     public String getUserId(String refreshToken) {
-        return store.get(refreshToken);
+        return tokenToUser.get(refreshToken);
     }
 
     public void revoke(String refreshToken) {
-        store.remove(refreshToken);
+        String userId = tokenToUser.remove(refreshToken);
+        if (userId != null) {
+            Set<String> tokens = userToTokens.get(userId);
+            if (tokens != null) {
+                tokens.remove(refreshToken);
+                if (tokens.isEmpty()) {
+                    userToTokens.remove(userId);
+                }
+            }
+        }
+    }
+
+    public void revokeAllByUser(String userId) {
+        Set<String> tokens = userToTokens.remove(userId);
+        if (tokens != null) {
+            for (String t : tokens) {
+                tokenToUser.remove(t);
+            }
+        }
     }
 }

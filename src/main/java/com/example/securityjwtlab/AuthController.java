@@ -46,6 +46,8 @@ public class AuthController {
     // refresh로 access 재발급
     @PostMapping("/refresh")
     public Map<String, String> refresh(@RequestBody Map<String, String> body) {
+        System.out.println("[AuthController] /auth/refresh called");
+
         String refreshToken = body.get("refreshToken");
         if (refreshToken == null || refreshToken.isBlank()) {
             throw new IllegalArgumentException("Refresh token is required");
@@ -67,10 +69,19 @@ public class AuthController {
             List<String> roles = (List<String>) claims.get("roles", List.class);
 
             // (옵션) 회전(rotate): refresh 재발급 + 기존 revoke
-            // 지금은 최소 구현이라 access만 재발급
+            // ✅ 1) 기존 refresh 폐기(revoke)
+            refreshTokenStore.revoke(refreshToken);
+            // ✅ 2) 새 refresh 발급 + 저장
+            String newRefreshToken = jwtProvider.createRefreshToken(userId, roles);
+            refreshTokenStore.save(newRefreshToken, userId);
+            // ✅ 3) 새 access 발급
             String newAccessToken = jwtProvider.createAccessToken(userId, roles);
 
-            return Map.of("accessToken", newAccessToken);
+            return Map.of(
+                    "accessToken", newAccessToken,
+                    "refreshToken", newRefreshToken
+            );
+
         } catch (JwtException e) {
             throw new IllegalArgumentException("invalid refresh token", e);
         }
