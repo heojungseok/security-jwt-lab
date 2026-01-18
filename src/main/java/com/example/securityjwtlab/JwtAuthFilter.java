@@ -32,9 +32,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
 
-        // 실습 단계에서는 "기존 인증 스킵" 로직은 빼는 게 디버깅이 쉬움
-        // (나중에 운영 수준에서 최적화로 넣자)
-
+        // 실습 단계에서는 "기존 인증 스킵" 로직은 빼는 게 디버깅이 쉬움 (나중에 운영 수준에서 최적화로 넣자)
         String authHeader = request.getHeader("Authorization");
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
@@ -45,6 +43,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         try {
             Claims claims = jwtProvider.parseAndValidate(token);
+            jwtProvider.assertTokenType(claims, "access");
 
             String userId = claims.getSubject();
 

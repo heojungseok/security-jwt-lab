@@ -17,30 +17,42 @@ import java.util.List;
 public class JwtProvider {
 
     private final SecretKey key;
-    private final long expMinutes;
+    private final long accessExpMinutes;
+    private final long refreshExpMinutes;
 
     public JwtProvider(
             @Value("${jwt.secret}") String secret,
-            @Value("${jwt.access-token-exp-minutes}") long expMinutes
+            @Value("${jwt.access-token-exp-minutes}") long accessExpMinutes,
+            @Value("${jwt.refresh-token-exp-minutes}") long refreshExpMinutes
     ) {
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
-        this.expMinutes = expMinutes;
+        this.accessExpMinutes = accessExpMinutes;
+        this.refreshExpMinutes = refreshExpMinutes;
     }
 
     public String createAccessToken(String userId, List<String> roles) {
+        return createToken("access", userId, roles, accessExpMinutes);
+    }
+
+    public String createRefreshToken(String userId, List<String> roles) {
+        return createToken("refresh", userId, roles, refreshExpMinutes);
+    }
+
+    private String createToken(String type, String userId, List<String> roles, long expMinutes) {
         Instant now = Instant.now();
         Instant exp = now.plusSeconds(expMinutes * 60);
 
         return Jwts.builder()
-                .subject(userId)                    // sub = userId
-                .claim("roles", roles)              // roles payload
+                .subject(userId)           // sub=userId
+                .claim("roles", roles)     // roles=[...]
+                .claim("typ", type)        // typ=access|refresh
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(exp))
-                .signWith(key, Jwts.SIG.HS256)       // HS256 알고리즘 지정
+                // 알고리즘 명시(원하면 HS512로 바꿔도 됨)
+                .signWith(key, Jwts.SIG.HS256)
                 .compact();
     }
 
-    /** 서명/만료 검증 포함 파싱. 실패 시 예외 발생 */
     public Claims parseAndValidate(String token) {
         Jws<Claims> jws = Jwts.parser()
                 .verifyWith(key)
@@ -48,5 +60,12 @@ public class JwtProvider {
                 .parseSignedClaims(token);
 
         return jws.getPayload();
+    }
+
+    public void assertTokenType(Claims claims, String expectedType) {
+        String typ = claims.get("typ", String.class);
+        if (!expectedType.equals(typ)) {
+            throw new IllegalArgumentException("Invalid token type. expected=" + expectedType + ", actual=" + typ);
+        }
     }
 }
